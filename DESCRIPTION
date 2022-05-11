@@ -6,6 +6,7 @@ Authors@R:
            family = "Daza-Báez",
            role = c("aut", "cre"),
            email = "n.baez@ucl.ac.uk"),
+	   comment = c(ORCID = " 0000-0002-7033-2620")),
    person(given = "Brendon",
            family = "McConnell",
            role = c("aut"),
