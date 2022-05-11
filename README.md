@@ -9,5 +9,7 @@ This package is provided free of charge and without any guarantee. If you use th
 
 You can install the development version of Optimal.sample from GitHub with:
 
-# install.packages("devtools")
+install.packages("devtools")
+```{r}
 devtools::install_github("brendonmcconnell/Optimal.sample")
+```
