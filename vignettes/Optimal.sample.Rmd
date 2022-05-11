@@ -1,0 +1,197 @@
+---
+title: "Optimal.sample"
+description: >
+  Optimal Sample Design for Cluster Ramdomised Trial with Different Costs in Treatment that in Control.
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Optimal.sample}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+options(tibble.print_min = 4L, tibble.print_max = 4L)
+set.seed(3103)
+```
+
+This vignette will introduce you to the `maxpower.opt` and `mincost.opt()` functions which calculate the optimal sample design for cluster randomized trials with different costs in treatment than in control. The `maxpower.opt()` function maximizes the statistical power - the probability that the null hypothesis of zero effect is correctly rejected - of a cluster RCT given a cost constrain. Meanwhile, the `mincost.opt()` function solves the dual problem, minimizing costs subject to achieving a given level of power.
+
+We will start by discussing the usage of `maxpower.opt()` and `mincost.opt()`, and show how to use these functions with multiple scenarios. Then we will show that the dual problem `mincost.opt()` provides the same optimal sample design as the primal problem `maxpower.opt()`. 
+
+## Basic usage 
+
+`maxpower.opt()` and `mincost.opt()` have 16 arguments, however, one of the most important is `.optimal.s`. This argument provides the optimal number of clusters and units within clusters for three different cases: 
+
+1. when both the optimal number of clusters and units are allowed to be different between treatment and control arms (`optimal.s = "CLUST-IND"`). 
+2. when the number of clusters are allowed to be different between treatment and control arms, but the number of units is constrained to be the same in both arms `(optimal.s = "CONST-IND")`.
+3. when the number of units within cluster are allowed to be different between treatment and control arms, but the number of clusters is constrained to be the same in both arms (`optimal.s = "CONST-CLUST"`).
+
+Here are some examples of `maxpower.opt()` and `mincost.opt()` for multiple scenarios in combination with different options in the argument `.optimal.s`:
+
+*  In this example, both fixed costs per cluster and variable cost per unit within cluster are different between treatment and control.
+ There are three different scenarios, each with a different total costs. The syntax (optimal.s = "CLUST-IND") allows both the optimal number of clusters and units per cluster to be different between the treatment and control arms.
+
+```{r, eval = FALSE}
+
+ maxpower.opt(delta = 0.25,
+              sigma = 1,
+              rho = 0.05,
+              alpha = 0.05,
+              C = c(815052.294, 974856.169, 1095876.675),
+              v0 = 150,
+              v1 = 2200,
+              f0 = 500,
+              f1 = 18000,
+              optimal.s = "CLUST-IND")
+```
+There are two ways to report the results: The first is directly through a matrix as in the following section; and the second is through a `.xlsx` file using the argument `.output` and the name of the file (`output = "name_of_the_file"`)
+
+```{r, eval = FALSE}
+  scenario      1.0000000      2.0000000       3.000000
+  delta         0.2500000      0.2500000       0.250000
+  sigma         1.0000000      1.0000000       1.000000
+  rho           0.0500000      0.0500000       0.050000
+  C        815052.2940000 974856.1690000 1095876.675000
+  v0          150.0000000    150.0000000     150.000000
+  v1         2200.0000000   2200.0000000    2200.000000
+  f0          500.0000000    500.0000000     500.000000
+  f1        18000.0000000  18000.0000000   18000.000000
+  k0           87.9674349    105.2148436     118.276433
+  k1           14.6612409     17.5358068      19.712737
+  m0            7.9582249      7.9582260       7.958223
+  m1           12.4681418     12.4681435      12.468142
+  power         0.6740177      0.7524999       0.800811
+```
+
+* In this example, both fixed costs per cluster and variable cost per unit within cluster are different between treatment and control. There are three different scenarios, each with different value of the fixed cost per cluster in the control group (`f0`). The syntax (`optimal.s = "CLUST-IND"`) allows both the optimal number of clusters and units per cluster to be different between the treatment and control arms. The initial conditions are specified for the optimization algorithm: `m0=20, m1=18, k0=15 and k1=18`.
+
+```{r, eval = FALSE}
+   mincost.opt(delta = 0.25,
+               sigma = 1,
+               rho = 0.05,
+               alpha = 0.05,
+               beta = 0.80,
+               v0 = 150,
+               v1 = 2200,
+               f0 = c(500, 1500, 5000),
+               f1 = 18000,
+               optimal.s = "CLUST-IND",
+               initial.cond = c(20, 18, 15, 18))
+```
+
+* This is an example with three scenarios, each with a different value of the fixed cost per cluster in the treatment group (`f1`).
+The syntax (`optimal.s = "CONST-IND"`) requests that the number of units per cluster is constrained to be the same in treatment as in control.
+
+```{r, eval = FALSE}
+   maxpower.opt(delta = 0.25,
+                sigma = 1,
+                rho = 0.27,
+                alpha = 0.05,
+                C = c(75862.836, 145230.184, 204196.756),
+                v0 = 25,
+                v1 = 100,
+                f0 = 381,
+                f1 = c(500, 1981, 3500),
+                optimal.s = "CONST-IND")
+```
+
+* This is an example with four scenarios, each with a different value of the variable cost per unit in the treatment group (`v1`). The syntax (`optimal.s = "CONST-CLUST"`)  requests that the number of clusters is constrained to be the same in treatment as in control.
+
+```{r, eval = FALSE}
+   mincost.opt(delta = 0.25,
+               sigma = 1,
+               rho = 0.05,
+               alpha = 0.05,
+               beta = 0.80,
+               v0 = 150,
+               v1 = c(250, 750, 1500, 2000),
+               f0 = 500,
+               f1 = 18000,
+               optimal.s = "CONST-CLUST")
+```
+
+## Dual problem 
+
+In this section we will provide some examples to show that the dual problem `mincost.opt()` provides the same optimal sample design as the primal problem `maxpower.opt()`. 
+
+We will start by  maximizing the statistical power of a cluster RCT given a cost constrain using the `maxpower.opt()` function. Then, we will solve the the dual problem, minimizing costs subject to achieving a given level of power, using the `mincost.opt()` function.
+
+* In this example, both fixed costs per cluster and variable cost per unit within cluster are different between treatment and control. The syntax (`optimal.s = "CLUST-IND"`) allows both the optimal number of clusters and units per cluster to be different between the treatment and control arms. 
+
+1. Primal problem:
+
+```{r, eval = FALSE}
+  maxpower.opt(delta = 0.25,
+               sigma = 1,
+               rho = 0.05,
+               alpha = 0.05,
+               C = 1177102.663661,
+               q = 1,
+               v0 = 100,
+               v1 = 2150,
+               f0 = 500,
+               f1 = 18000,
+               optimal.s = "CLUST-IND")
+```
+
+The results report for the primal problem:
+
+```{r, eval = FALSE}
+  scenario       1
+  delta          0.250000
+  sigma          1.000000
+  rho            0.050000
+  C        1177102.663661
+  v0           100.000000
+  v1          2150.000000
+  f0           500.000000
+  f1         18000.000000
+  k0           130.875225
+  k1            21.812541
+  m0             9.746796
+  m1            12.612286
+  power          0.850000
+```
+
+2. Dual problem:
+
+```{r, eval = FALSE}
+ mincost.opt(delta = 0.25,
+             sigma = 1,
+             rho = 0.05,
+             alpha = 0.05,
+             beta = 0.85,
+             q = 1,
+             v0 = 100,
+             v1 = 2150,
+             f0 = 500,
+             f1 = 18000,
+             optimal.s = "CLUST-IND")
+```
+
+The results report for the dual problem:
+
+```{r, eval = FALSE}
+  scenario       1
+  delta          0.250000
+  sigma          1.000000
+  rho            0.050000
+  v0           100.000000
+  v1          2150.000000
+  f0           500.000000
+  f1         18000.000000
+  k0           130.875241
+  k1            21.812541
+  m0             9.746794
+  m1            12.612286
+  cost     1177102.663661
+```
+
+
+```{r setup}
+library(Optimal.sample)
+```

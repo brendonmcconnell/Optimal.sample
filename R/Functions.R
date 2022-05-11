@@ -1,0 +1,1156 @@
+
+# kappa function using T-Distribution ------------------------------------------
+#'
+#' @description This function calculates the cumulative distribution function of the t-distribution with (K- q) degrees of freedom.
+#'
+#' @param alpha Vector. Significance level for the null hypothesis of no effect.
+#' @param beta Vector. Power of the RCT.
+#' @param sigma Vector. Standard deviation of the outcome variable.
+#' @param K Vector. Total number of clusters.
+#' @param q Where (K - q) are the degrees of freedom to test the null hypothesis of null effect. Default is 1.
+#'
+#' @return Vector. Returns the value of the cumulative distribution function of the t-distribution with (K- q) degrees of freedom.
+#'
+#'
+#' @export
+
+kappa.fun <- function(alpha, beta, sigma, K, q) {
+
+  t.a.t <- qt((1-(alpha/2)), K-q, lower.tail = TRUE)
+  t.b.t <- qt(beta, K-q, lower.tail = TRUE)
+  kappa.t <- (t.a.t + t.b.t)^2 * (sigma^2)
+
+  return(kappa.t)
+
+}
+
+# Initial conditions NO ANCOVA -----------------------------------------------------------
+#'
+#' @description This function estimates the initial conditions for the number of clusters and the number of sample units per cluster.
+#'
+#' @param delta Vector. Size of the effect on the outcome variable (effect size measured in same units as the outcome variable).
+#' @param sigma Vector. Standard deviation of the outcome variable.
+#' @param rho Vector. Intra-cluster correlation.
+#' @param rhoP Vector. Unit autocorrelation of the outcome over time.
+#' @param rhoC Vector. Cluster autocorrelation of the outcome over time.
+#' @param alpha Vector. Significance level for the null hypothesis of no effect.
+#' @param beta Vector. Power of the RCT.
+#' @param q Where (K - q) are the degrees of freedom to test the null hypothesis of null effect. Default is 1.
+#' @param v0 Vector. Variable costs per unit in the control clusters. It includes the cost of data collection (baseline and endline) and the cost of implementing the intervention under study.
+#' @param v1 Vector. Variable costs per unit in the treatment clusters. It includes the cost of data collection (baseline and endline) and the cost of implementing the intervention under study.
+#' @param f0 Vector. Fixed costs per control cluster. It includes the total fixed cost: baseline and endline.
+#' @param f1 Vector. Fixed costs per treatment cluster. It includes the total fixed cost: baseline and endline.
+#'
+#' @return Returns a data.frame with 3 components: \describe{
+#'
+#' \item{scenario}{This is a vector of the number of the scenario displayed.}
+#'
+#' \item{m.ic}{This is a vector of the number of sample units per control/treatment cluster used as initial condition of the GenSA optimization function.}
+#'
+#' \item{k.ic}{This is a vector of the number of control/treatment clusters used as initial condition of the GenSA optimization function.}
+#' }
+#'
+#'
+#' @export
+
+initialconditions.nA <- function(delta,
+                                 sigma,
+                                 rho,
+                                 alpha,
+                                 beta,
+                                 q,
+                                 v0,
+                                 v1,
+                                 f0,
+                                 f1,
+                                 C,
+                                 model){
+
+  ### additional initial values -  normal distribution
+
+  t.a <- qnorm((1-(alpha/2)), lower.tail = TRUE)
+  t.b <- qnorm(beta, lower.tail = TRUE)
+  kappa <- (t.a + t.b)^2 * (sigma^2)
+
+  ### Number of scenarios
+
+  scenario <- c(1:max(length(delta), length(sigma), length(rho), length(alpha), length(beta), length(v0), length(v1), length(f0), length(f1), length(C)))
+
+  ### Generate variable with the number of iteration
+  ### iter=0 is iteration using the normal distribution
+
+  iter <- c(0)
+
+  ### Data frame to save initial conditions
+
+  K <- c(NA)
+  ic.output <- as.data.frame(cbind(iter, scenario, delta, sigma, rho, alpha, beta, v0, v1, f0, f1, K, kappa))
+
+  ### Optimal values of number of individuals per cluster (m)
+  ### (Eq 41 of section 6.1.4 in IFS WP)
+
+  ic.output$m <- sqrt(((f0+f1)*(1-rho))/((v0+v1)*rho))
+
+  ### Number of clusters per arm (k)
+
+  if (model=="MP") {
+
+    ### (Eq 41 of section 6.1.4 in IFS WP)
+
+    ic.output$k <- C/(f0+f1+((v0+v1)*ic.output$m))
+
+  } else{
+
+    ### Total sample size per arm (n)
+    ### (Eq 16 of section 4.3 in IFS WP without (1-r^2))
+
+    ic.output$n <- (2*kappa/delta^2)*(1+(ic.output$m-1)*rho)
+
+    ic.output$k <- ic.output$n/ic.output$m
+  }
+
+  ### Value of Kt (K = 2k)
+
+  ic.output$Kt <- 2*ic.output$k
+
+  ### Sorting variables
+
+  ic.output.t <- ic.output[, c("iter", "scenario", "delta", "sigma", "rho", "alpha", "beta", "kappa", "v0", "v1", "f0", "f1", "m", "k", "Kt", "K")]
+
+  ### Test K and Kt for exact equality
+
+  abs.dif.K <- abs(ic.output.t$'K' - ic.output.t$"Kt")
+  ic.output.t$same = ifelse((abs.dif.K< 0.01), "TRUE", "FALSE")
+
+  ### Combine Outputs_t data frames
+
+  initial.conditions <- as.data.frame(rbind(ic.output.t ))
+
+  ### Delete data from iteration 0
+
+  rm ("ic.output")
+
+  ### Initial conditions - T-Distribution iterations -------------------------------
+
+  repeat {
+
+    ### Generate K values using the values from previous iteration
+
+    K = ic.output.t$Kt
+
+    ### Delete data from previous iteration
+
+    rm ("ic.output.t")
+
+    ### Generate variable with the number of iteration
+
+    iter<-iter+1
+
+    ### Define the new data frame to store the initial conditions
+
+    ic.output.t<- as.data.frame(cbind(iter, scenario, delta, sigma, rho, alpha, beta, v0, v1, f0, f1, K))
+
+    ### Kappa values t-distribution
+
+    ic.kappa<- vector("list", nrow(ic.output.t))
+
+    for (i in 1:nrow(ic.output.t)) {
+
+      ic.kappa[[i]]<-kappa.fun(alpha = ic.output.t[i,'alpha'], beta = ic.output.t[i,'beta'],
+                               sigma = ic.output.t[i,'sigma'], K = ic.output.t[i,'K'], q)
+
+    }
+
+    ic.output.t$kappa <-sapply(ic.kappa, `[`)
+
+    ### Optimal values of number of individuals per cluster (m)
+    ### (Eq 41 of section 6.1.4 in IFS WP)
+
+    ic.output.t$m <- sqrt(((f0+f1)*(1-rho))/((v0+v1)*rho))
+
+    ### Number of clusters per arm (k)
+
+    if (model=="MP") {
+
+      ### (Eq 41 of section 6.1.4 in IFS WP)
+
+      ic.output.t$k <- C/(f0+f1+((v0+v1)*ic.output.t$m))
+
+    } else {
+
+      ### Total sample size per arm (n)
+      ### (Eq 16 of section 4.3 in IFS WP without (1-r^2))
+
+      ic.output.t$n <- (2*kappa/delta^2)*(1+(ic.output.t$m-1)*rho)
+
+      ic.output.t$k <- ic.output.t$n/ic.output.t$m
+    }
+
+    ### Value of Kt (K = 2k)
+
+    ic.output.t$Kt <- 2*ic.output.t$k
+
+    ### Sorting variables
+
+    ic.output.t <- ic.output.t[, c("iter", "scenario", "delta", "sigma", "rho", "alpha", "beta", "kappa", "v0", "v1", "f0", "f1", "m", "k", "Kt", "K")]
+
+    ### Testing K and Kt for exact equality
+
+    abs.dif.K <- abs(ic.output.t$'K' - ic.output.t$"Kt")
+    ic.output.t$same = ifelse((abs.dif.K< 0.01), "TRUE", "FALSE")
+
+    ### Combine Outputs_t data frames
+
+    initial.conditions<- as.data.frame(rbind(ic.output.t,initial.conditions ))
+
+    ### Condition to break the iterations
+
+    brk   = sum(ifelse(ic.output.t$"same"== "TRUE",1,0))
+
+      if (brk==length(scenario)) {
+        break
+      }
+
+    ### Delete data from previous iteration
+
+    rm ("ic.kappa")
+  }
+
+  ### Keep the initials condition of the last iteration
+  ### This file keeps only values of m and k
+
+  initial.cond <- as.data.frame(initial.conditions[1:nrow(ic.output.t), c("scenario","m", "k")])
+
+  colnames(initial.cond) <- c('scenario','m.ic','k.ic')
+  return (initial.cond)
+
+  ### Delete data frames of initial conditions
+
+  rm ("ic.output.t")
+
+}
+
+# Total Cost function NO ANCOVA ------------------------------------------------------------
+#'
+#' @description Total costs function for cluster Randomized Control Trials with only an endline measurement subject to a power constraint.
+#'
+#' @param x  Vector. Parameters to be optimized.
+#' @param delta Vector. Size of the effect on the outcome variable (effect size measured in same units as the outcome variable).
+#' @param rho Vector. Intra-cluster correlation.
+#' @param rhoP Vector. Unit autocorrelation of the outcome over time.
+#' @param rhoC Vector. Cluster autocorrelation of the outcome over time.
+#' @param v0 Vector. Variable costs per unit in the control clusters. It includes the cost of data collection (baseline and endline) and the cost of implementing the intervention under study.
+#' @param v1 Vector. Variable costs per unit in the treatment clusters. It includes the cost of data collection (baseline and endline) and the cost of implementing the intervention under study.
+#' @param f0 Vector. Fixed costs per control cluster. It includes the total fixed cost: baseline and endline.
+#' @param f1 Vector. Fixed costs per treatment cluster. It includes the total fixed cost: baseline and endline.
+#' @param kappa  Vector. Cumulative distribution function of the t-distribution.
+#' @param optimal Indicates whether the sample design should constrain the number of units per treatment and control clusters to be the same ("1") or whether the sample design should constrain the treatment and control clusters to be the same "2" or whether the solution should be fully unconstrained ("0").
+#' @param initial.cond  Vector. Initial values of the number of sample units per cluster (m0,m1) and the number of clusters (k0,k1) - keep the order- that the optimization routine will use.
+#' @return Returns (costs) the value of the total costs.
+#'
+#'
+#' @export
+
+total.costs.nA <- function(x,
+                           delta,
+                           rho,
+                           v0,
+                           v1,
+                           f0,
+                           f1,
+                           kappa,
+                           optimal,
+                           initial.cond) {
+
+  if (optimal != 2 ){
+
+    if (optimal == 0 ) {
+
+      m0 <- x[1]
+      m1 <- x[2]
+      k1 <- x[3]
+
+    } else if (optimal == 1 ) {
+      m0 <- x[1]
+      m1 <- x[1]
+      k1 <- x[2]
+    }
+
+    costs <- ((((kappa*((1+((m0-1)*rho))/(m0))) / ((delta^2) - (kappa*((1+((m1-1)*rho))/(m1*k1)))))*(f0 + (v0*m0))) + (k1*(f1 + (v1*m1))))
+
+       k0 <-   ((kappa*((1+((m0-1)*rho))/(m0))) / ((delta^2) - (kappa*((1+((m1-1)*rho))/(m1*k1)))))
+
+
+  } else if (optimal == 2) {
+
+    m0 <- x[1]
+    m1 <- x[2]
+
+    costs <- (((kappa/(delta^2)) * (((1+((m0-1)*rho))/(m0)) + ((1+((m1-1)*rho))/(m1))))*((f0+f1) + (v0*m0) + (v1*m1)))
+
+       k0 <-  ((kappa/(delta^2)) * (((1+((m0-1)*rho))/(m0)) + ((1+((m1-1)*rho))/(m1))))
+
+  }
+
+  if (k0 >= 1) {
+    return(costs)
+  } else {
+    costs <- 100*((initial.cond[,'k0.ic']*(f0 + (v0*initial.cond[,'m0.ic']))) + (initial.cond[,'k1.ic']*(f1 + (v1*initial.cond[,'m1.ic']))))
+    return(costs)
+  }
+
+}
+
+# Cost minimization NO ANCOVA ------------------------------------------------------------
+#'
+#' @description Cost minimizing sample designs for cluster Randomized Control Trials with only an endline measurement subject to a power constraint.
+#'
+#' @param delta Vector. Size of the effect on the outcome variable (effect size measured in same units as the outcome variable).
+#' @param sigma Vector. Standard deviation of the outcome variable.
+#' @param rho Vector. Intra-cluster correlation.
+#' @param alpha Vector. Significance level for the null hypothesis of no effect.
+#' @param beta Vector. Power of the RCT.
+#' @param q Where (K - q) are the degrees of freedom to test the null hypothesis of null effect. Default is 1.
+#' @param v0 Vector. Variable costs per unit in the control clusters. It includes the cost of data collection (baseline and endline) and the cost of implementing the intervention under study.
+#' @param v1 Vector. Variable costs per unit in the treatment clusters. It includes the cost of data collection (baseline and endline) and the cost of implementing the intervention under study.
+#' @param f0 Vector. Fixed costs per control cluster. It includes the total fixed cost: baseline and endline.
+#' @param f1 Vector. Fixed costs per treatment cluster. It includes the total fixed cost: baseline and endline.
+#' @param optimal Indicates whether the sample design should constrain the number of units per treatment and control clusters to be the same ("1") or whether the sample design should constrain the treatment and control clusters to be the same "2" or whether the solution should be fully unconstrained ("0").
+#' @param initial.cond  Vector. Initial values of the number of sample units per cluster (m0,m1) and the number of clusters (k0,k1) - keep the order- that the optimization routine will use. Default is NULL, in which case, the function will compute these initial conditions.
+#' @param lb Vector. Minimum possible value for the optimal number of clusters and optimal number of units. Default is 1 for each parameter.
+#' @param ub Vector. Maximum possible value for the optimal number of clusters and optimal number of units. Default is 1000 for each parameter.
+#' @param temp Numeric. Temperature parameter for the GenSA optimization function. Default is NULL, in which case, the default value in GenSA function will be used.
+#'
+#'
+#' @return Returns a matrix of size (18 x number of Scenarios). For each scenario the matrix provide the following components: \describe{
+#'
+#' \item{scenario}{This is a vector of the number of the scenario displayed.}
+#'
+#' \item{delta}{This is a vector of the size of the effect on the outcome variable.}
+#'
+#' \item{sigma}{This is a vector of the standard deviation of the outcome variable.}
+#'
+#' \item{rho}{This is a vector of the intra-cluster correlation.}
+#'
+#' \item{k0.ic}{This is a vector of the number of control clusters used as initial condition of the GenSA optimization function.}
+#'
+#' \item{k1.ic}{This is a vector of the number of treatment clusters used as initial condition of the GenSA optimization function.}
+#'
+#' \item{m0.ic}{This is a vector of the number of sample units per control cluster used as initial condition of the GenSA optimization function.}
+#'
+#' \item{m1.ic}{This is a vector of the number of sample units per treatment cluster used as initial condition of the GenSA optimization function.}
+#'
+#' \item{v0}{This is a vector of the variable cost per control unit.}
+#'
+#' \item{v1}{This is a vector of the variable costs per treatment unit.}
+#'
+#' \item{f0}{This is a vector of the fixed costs per control cluster.}
+#'
+#' \item{f1}{This is a vector of the fixed costs per treatment cluster.}
+#'
+#' \item{k0}{This is a vector of the optimum number of control clusters that minimize the costs.}
+#'
+#' \item{k1}{This is a vector of the optimum number of treatment clusters that minimize the costs.}
+#'
+#' \item{m0}{This is a vector of the optimum number of sample units per control cluster that minimize the costs.}
+#'
+#' \item{m1}{This is a vector of the optimum number of sample units per treatment cluster that minimize the costs.}
+#'
+#' \item{Cost}{This is the vector of the minimum costs of the RCT with the optimum number of clusters and units provided by this function.}
+#'
+#' \item{K}{This is the vector of the optimum total number of clusters.}
+#'}
+#'
+#'
+#' @export
+
+mincost.nA <- function(delta,
+                       sigma,
+                       rho,
+                       alpha,
+                       beta,
+                       q,
+                       v0,
+                       v1,
+                       f0,
+                       f1,
+                       optimal,
+                       initial.cond,
+                       lb,
+                       ub,
+                       temp){
+
+  ### additional initial values -  normal distribution
+
+  t.a <- qnorm((1-(alpha/2)), lower.tail = TRUE)
+  t.b <- qnorm(beta, lower.tail = TRUE)
+  kappa <- (t.a + t.b)^2 * (sigma^2)
+
+  ### Number of scenarios
+
+  scenario <- c(1:max(length(delta), length(sigma), length(rho), length(alpha),
+                      length(beta), length(v0), length(v1), length(f0), length(f1)))
+
+  ### Generate variable with the number of iteration
+  ### iter=0 is iteration using the normal distribution
+
+  iter.mc <- c(0)
+
+  ### Output file
+
+  K <- c(NA)
+  mc.output <- as.data.frame(cbind(iter.mc, scenario, delta, sigma, rho, alpha, beta, v0, v1, f0, f1, K, kappa))
+  mc.output <- as.data.frame(merge(initial.cond, mc.output, by="scenario"))
+
+  ### Parameters boundaries
+
+  lower <- lb
+  upper <- ub
+
+  ### Temperature
+
+  if(is.null(temp))  {
+    temp <- 5230      ### Default value in GenSA function.
+  }else{
+    temp <= temp
+  }
+
+  ### Definition of parameters according to the initial conditions
+
+  if (optimal == 0) {
+
+    m0 <- initial.cond[,'m0.ic']
+    m1 <- initial.cond[,'m1.ic']
+    k1 <- initial.cond[,'k1.ic']
+
+    params <- cbind(m0, m1, k1)
+
+  }  else if (optimal == 1){
+
+    m0 <- initial.cond[,'m0.ic']
+    k1 <- initial.cond[,'k1.ic']
+
+    params <- cbind(m0, k1)
+
+  } else if (optimal == 2) {
+
+    m0 <- initial.cond[,'m0.ic']
+    m1 <- initial.cond[,'m1.ic']
+
+    params <- cbind(m0, m1)
+
+  }
+
+  ### Minimization of costs
+
+  optim.cost <- vector("list", nrow(mc.output))
+
+  for (i in 1:nrow(mc.output)) {
+
+    optim.cost[[i]] <- GenSA(par = params[i,], fn = total.costs.nA,  lower = lower, upper = upper, v0 = mc.output[i,'v0'], v1 = mc.output[i,'v1'],
+                             f0 = mc.output[i,'f0'], f1 = mc.output[i,'f1'], kappa = mc.output[i,'kappa'], optimal = optimal ,
+                             delta= mc.output[i,'delta'], rho = mc.output[i,'rho'], initial.cond = initial.cond, control = list(temperature = temp))
+  }
+
+  ### Best set of parameters found
+
+  V <- sapply(optim.cost, `[[`, "par")
+  mc.output$cost <- sapply(optim.cost, `[[`, "value")
+
+  mc.output$m0 <- V[1,]
+
+  if (optimal == 0) {
+
+    mc.output$m1 <- V[2,]
+    mc.output$k1 <- V[3,]
+
+  } else if (optimal == 1){
+
+    mc.output$m1 <- V[1,]
+    mc.output$k1 <- V[2,]
+
+  } else if (optimal == 2){
+
+    mc.output$m1 <- V[2,]
+    mc.output$k1 <- c(NA)
+
+  }
+
+  ### Value of K0 using the best parameters found in the optimization process
+
+  if (optimal != 2) {
+
+    mc.output$k0 <- ((kappa*((1+((mc.output$m0-1)*rho))/(mc.output$m0))) / ((delta^2) - (kappa*((1+((mc.output$m1-1)*rho))/(mc.output$m1*mc.output$k1)))))
+
+  } else if (optimal == 2) {
+
+    mc.output$k0 =  ((kappa/(delta^2)) * (((1+((mc.output$m0-1)*rho))/(mc.output$m0)) + ((1+((mc.output$m1-1)*rho))/(mc.output$m1))))
+
+    mc.output$k1 <- mc.output$k0
+
+  }
+
+  ### Sort variables
+
+  mc.output.t <- mc.output[, c("iter.mc", "scenario", "delta", "sigma", "rho", "alpha", "beta", "m0.ic", "m1.ic", "k0.ic", "k1.ic", "kappa", 'v0', "v1", "f0", "f1", 'k0', "k1", 'm0', "m1", 'cost', "K")]
+
+  ### Value of Kt (K = k0 + k1)
+
+  mc.output.t$Kt <- (mc.output.t$k0 + mc.output.t$k1)
+
+  ### Test K and Kt for exact equality
+
+  abs.dif.K <- abs(mc.output.t$'K' - mc.output.t$"Kt")
+  mc.output.t$same = ifelse((abs.dif.K< 0.01), "TRUE", "FALSE")
+
+  ### Combine Outputs.t data frames
+
+  min.costs<- as.data.frame(rbind(mc.output.t))
+
+  ### Delete data from iteration with the normal distribution
+
+  rm ("mc.output", "optim.cost", "V" )
+
+
+  ### Cost minimization - T-Distribution iterations ----------------------------------
+
+  repeat {
+
+    ### Generate K values using the values from previous iteration
+
+    K = mc.output.t$Kt
+
+    ### Delete data from previous iteration
+
+    rm ("mc.output.t")
+
+    ### Generate variable with the number of iteration
+
+    iter.mc<-iter.mc+1
+
+    ### Define the new data frame to store the outputs
+
+    mc.output.t<- as.data.frame(cbind(iter.mc, scenario, delta, sigma, rho, alpha, beta, v0, v1, f0, f1, K))
+    mc.output.t <- as.data.frame(merge(initial.cond, mc.output.t, by="scenario"))
+
+    ### Kappa function using T-Distribution
+
+    mc.kappa<- vector("list", nrow(mc.output.t))
+
+    for (i in 1:nrow(mc.output.t)) {
+
+      mc.kappa[[i]]<-kappa.fun(alpha = mc.output.t[i,'alpha'], beta = mc.output.t[i,'beta'],
+                               sigma = mc.output.t[i,'sigma'], K = mc.output.t[i,'K'], q = q)
+
+    }
+
+    mc.output.t$kappa <-sapply(mc.kappa, `[`)
+
+    ### Minimization of costs
+
+    optim.cost.t<- vector("list", nrow(mc.output.t))
+
+    for (i in 1:nrow(mc.output.t)) {
+
+      optim.cost.t[[i]] <- GenSA(par = params[i, ], fn = total.costs.nA ,lower= lower, upper = upper, v0 = mc.output.t[i,'v0'],
+                                 v1 = mc.output.t[i,'v1'], f0 = mc.output.t[i,'f0'], f1 = mc.output.t[i,'f1'], kappa = mc.output.t[i,'kappa'],
+                                 optimal = optimal, delta= mc.output.t[i,'delta'], rho = mc.output.t[i,'rho'], initial.cond = initial.cond,
+                                 control = list(temperature = temp))
+    }
+
+    ### Best set of parameters found
+
+    V.t <- sapply(optim.cost.t, `[[`, "par")
+    mc.output.t$cost <- sapply(optim.cost.t, `[[`, "value")
+
+    mc.output.t$m0 <- V.t[1,]
+
+    if (optimal == 0) {
+
+      mc.output.t$m1 <- V.t[2,]
+      mc.output.t$k1 <- V.t[3,]
+
+    } else if (optimal == 1){
+
+      mc.output.t$m1 <- V.t[1,]
+      mc.output.t$k1 <- V.t[2,]
+
+    } else if (optimal == 2){
+
+      mc.output.t$m1 <- V.t[2,]
+      mc.output.t$k1 <- c(NA)
+
+    }
+
+    ### Value of K0 using the best parameters found in the optimization process
+
+    if (optimal != 2){
+
+      mc.output.t$k0 <-   ((mc.output.t$kappa*((1+((mc.output.t$m0-1)*rho))/(mc.output.t$m0))) /
+                          ((delta^2) - (mc.output.t$kappa*((1+((mc.output.t$m1-1)*rho))/(mc.output.t$m1*mc.output.t$k1)))))
+
+    } else if (optimal == 2) {
+
+      mc.output.t$k0 =    ((mc.output.t$kappa/(delta^2)) * (((1+((mc.output.t$m0-1)*rho))/(mc.output.t$m0)) + ((1+((mc.output.t$m1-1)*rho))/(mc.output.t$m1))))
+      mc.output.t$k1 <-   mc.output.t$k0
+
+    }
+
+    ### Sort variables
+
+    mc.output.t <- mc.output.t[, c("iter.mc", "scenario", "delta", "sigma", "rho", "alpha", "beta", "m0.ic", "m1.ic", "k0.ic", "k1.ic", "kappa", 'v0', "v1", "f0", "f1", 'k0', "k1", 'm0', "m1", 'cost', "K")]
+
+    ### Kt
+
+    mc.output.t$Kt <- mc.output.t$k0 + mc.output.t$k1
+
+    ### Test K and Kt for exact equality
+
+    abs.dif.K <- abs(mc.output.t$'K' - mc.output.t$"Kt")
+    mc.output.t$same = ifelse((abs.dif.K< 0.01), "TRUE", "FALSE")
+
+    ### Combine Outputs.t data frames,
+
+    min.costs<- as.data.frame(rbind(mc.output.t, min.costs))
+
+    ### Condition to break the iterations
+
+    brk = sum (ifelse (mc.output.t$"same"== "TRUE",1,0))
+
+    if (brk==length(scenario)) {
+      break
+    }
+
+    ### Delete data from iteration
+
+    rm ("mc.kappa", "optim.cost.t", "V.t" )
+  }
+
+  ### Keep the best parameters found in the optimization process
+
+  min.costs$K=min.costs$Kt
+
+  results <- (min.costs[1:nrow(mc.output.t), c("scenario", "delta", "sigma", "rho", 'v0', "v1", "f0", "f1", 'k0', "k1", 'm0', "m1", 'cost')])
+
+  ### Delete data frames of initial conditions
+
+  rm ("mc.output.t", "mc.kappa", "V.t", "optim.cost.t")
+
+  ### Transposing objects
+
+  options(scipen=24)
+  minimum.costs <- ((t(results)))
+  return (minimum.costs)
+}
+
+
+# Power function NO ANCOVA (1)------------------------------------------------------------
+#'
+#' @description This function estimates the power of the RCT using normal distribution.
+#'
+#' @param x  Vector. Parameters to be optimized.
+#' @param delta Vector. Size of the effect on the outcome variable (effect size measured in same units as the outcome variable).
+#' @param sigma Vector. Standard deviation of the outcome variable.
+#' @param rho Vector. Intra-cluster correlation.
+#' @param C Vector. Maximum level of costs of implementing the RCT. It includes data collection costs (baseline and endline) and the costs of implementing the intervention under study.
+#' @param t.a  Cumulative distribution function of the normal distribution.
+#' @param v0 Vector. Variable costs per unit in the control clusters. It includes the cost of data collection (baseline and endline) and the cost of implementing the intervention under study.
+#' @param v1 Vector. Variable costs per unit in the treatment clusters. It includes the cost of data collection (baseline and endline) and the cost of implementing the intervention under study.
+#' @param f0 Vector. Fixed costs per control cluster. It includes the total fixed cost: baseline and endline.
+#' @param f1 Vector. Fixed costs per treatment cluster. It includes the total fixed cost: baseline and endline.
+#' @param optimal Indicates whether the sample design should constrain the number of units per treatment and control clusters to be the same ("1") or whether the sample design should constrain the treatment and control clusters to be the same "2" or whether the solution should be fully unconstrained ("0").
+#'
+#' @return Vector. Returns (power) the value of the power of the RCT using normal distribution.
+#'
+#'
+#' @export
+
+power.func.nA  <- function(x,
+                        delta,
+                        sigma,
+                        rho,
+                        C,
+                        t.a,
+                        v0,
+                        v1,
+                        f0,
+                        f1,
+                        optimal) {
+
+  if (optimal != 2 ){
+
+    if (optimal == 0 ) {
+
+      m0 <- x[1]
+      m1 <- x[2]
+      k1 <- x[3]
+
+    } else if (optimal == 1 ) {
+      m0 <- x[1]
+      m1 <- m0
+      k1 <- x[2]
+    }
+
+        k0 <- ((C - (k1 * (f1 + (v1*m1))))/(f0 + (v0*m0)))
+
+      if (k0 >= 1) {
+
+        power <- - (pnorm(((delta/(sqrt(sigma^2*(((1+((m0-1)*rho))/(m0*((C - (k1*(f1 + (v1*m1))))/(f0 + (v0*m0)))))
+                     + ((1+((m1-1)*rho))/(m1*k1))))))- t.a), lower.tail=FALSE))
+
+        return(power)
+      } else  {
+        return(0)
+
+      }
+
+  } else if (optimal == 2) {
+
+    m0 <- x[1]
+    m1 <- x[2]
+
+      k0 <- (C /((f0+f1) + (v0*m0) + (v1*m1)))
+
+    if (k0 >= 1) {
+
+      power = - (pnorm((((delta*sqrt(C /((f0+f1) + (v0*m0) + (v1*m1)))) /
+                (sqrt(sigma^2*((1+((m0-1)*rho))/(m0) + ((1+((m1-1)*rho))/(m1))))))
+                - t.a), lower.tail=FALSE))
+
+      return(power)
+    } else {
+      return(0)
+    }
+
+  }
+
+}
+
+
+# Power function NO ANCOVA (2)------------------------------------------------------------
+#'
+#' @description This function estimates the power of the RCT using t-distribution.
+#'
+#' @param x  Vector. Parameters to be optimized.
+#' @param delta Vector. Size of the effect on the outcome variable (effect size measured in same units as the outcome variable).
+#' @param sigma Vector. Standard deviation of the outcome variable.
+#' @param rho Vector. Intra-cluster correlation.
+#' @param C Vector. Maximum level of costs of implementing the RCT. It includes data collection costs (baseline and endline) and the costs of implementing the intervention under study.
+#' @param t.a  Cumulative distribution function of the normal distribution.
+#' @param df The degrees of freedom (K-q) to test the null hypothesis of null effect.
+#' @param v0 Vector. Variable costs per unit in the control clusters. It includes the cost of data collection (baseline and endline) and the cost of implementing the intervention under study.
+#' @param v1 Vector. Variable costs per unit in the treatment clusters. It includes the cost of data collection (baseline and endline) and the cost of implementing the intervention under study.
+#' @param f0 Vector. Fixed costs per control cluster. It includes the total fixed cost: baseline and endline.
+#' @param f1 Vector. Fixed costs per treatment cluster. It includes the total fixed cost: baseline and endline.
+#' @param optimal Indicates whether the sample design should constrain the number of units per treatment and control clusters to be the same ("1") or whether the sample design should constrain the treatment and control clusters to be the same "2" or whether the solution should be fully unconstrained ("0").
+#'
+#' @return Vector. Returns (power) the value of the power of the RCT using t-distribution.
+#'
+#'
+#' @export
+
+power.func.t.nA  <- function(x,
+                          delta,
+                          sigma,
+                          rho,
+                          C,
+                          t.a,
+                          df,
+                          v0,
+                          v1,
+                          f0,
+                          f1,
+                          optimal) {
+
+  if (optimal != 2 ){
+
+    if (optimal == 0 ) {
+
+      m0 <- x[1]
+      m1 <- x[2]
+      k1 <- x[3]
+
+    } else if (optimal == 1 ) {
+      m0 <- x[1]
+      m1 <- m0
+      k1 <- x[2]
+    }
+
+      k0 <- ((C - (k1 * (f1 + (v1*m1))))/(f0 + (v0*m0)))
+
+    if (k0 >= 1) {
+
+      power <-  - (1 - pt(((delta / (sqrt((sigma^2) * (((1+((m0-1)*rho)) /
+                  (m0 * ((C - (k1*(f1+(v1*m1)))) / (f0+(v0*m0))))) +
+                  ((1+((m1-1)*rho)) / (m1*k1)))))) - t.a), df, lower.tail =FALSE))
+
+      return(power)
+    } else  {
+      return(0)
+    }
+
+  } else if (optimal == 2) {
+
+    m0 <- x[1]
+    m1 <- x[2]
+
+      k0 <- (C /((f0 + (v0*m0)) + (f1 + (v1*m1))))
+
+    if (k0 >= 1) {
+
+      power = - (1 - pt(((((delta) * (sqrt(C/((f0 +f1) + (v0*m0) + (v1*m1))))) /
+                (sqrt((sigma^2)*(((1+((m0-1)*rho)) / (m0)) +
+                ((1+((m1-1)*rho)) / (m1)))))) - t.a), df, lower.tail = FALSE))
+
+      return(power)
+    } else {
+      return(0)
+    }
+
+  }
+
+}
+
+
+# Power maximization NO ANCOVA ------------------------------------------------------------
+#'
+#' @description Power maximizing sample designs for cluster Randomized Control Trials with only an endline measurement subject to a costs constraint.
+#'
+#' @param delta Vector. Size of the effect on the outcome variable (effect size measured in same units as the outcome variable).
+#' @param sigma Vector. Standard deviation of the outcome variable.
+#' @param rho Vector. Intra-cluster correlation.
+#' @param alpha Vector. Significance level for the null hypothesis of no effect.
+#' @param C Vector. Maximum level of costs of implementing the RCT. It includes data collection costs (baseline and endline) and the costs of implementing the intervention under study.
+#' @param q Where (K - q) are the degrees of freedom to test the null hypothesis of null effect. Default is 1.
+#' @param v0 Vector. Variable costs per unit in the control clusters. It includes the cost of data collection (baseline and endline) and the cost of implementing the intervention under study.
+#' @param v1 Vector. Variable costs per unit in the treatment clusters. It includes the cost of data collection (baseline and endline) and the cost of implementing the intervention under study.
+#' @param f0 Vector. Fixed costs per control cluster. It includes the total fixed cost: baseline and endline.
+#' @param f1 Vector. Fixed costs per treatment cluster. It includes the total fixed cost: baseline and endline.
+#' @param optimal Indicates whether the sample design should constrain the number of units per treatment and control clusters to be the same ("1") or whether the sample design should constrain the treatment and control clusters to be the same "2" or whether the solution should be fully unconstrained ("0")
+#' @param initial.cond  Vector. Initial values of the number of sample units per cluster (m0,m1) and the number of clusters (k0,k1) - keep the order- that the optimization routine will use.
+#' @param lb Vector. Minimum possible value for the optimal number of clusters and optimal number of units.
+#' @param ub Vector. Maximum possible value for the optimal number of clusters and optimal number of units.
+#' @param temp Numeric. Temperature parameter for the GenSA optimization function. Default is NULL, in which case, the default value in GenSA function will be used.
+#'
+#' @return Returns a matrix of size (19 x number of Scenarios). For each scenario the matrix provide the following components: \describe{
+#'
+#' \item{scenario}{This is a vector of the number of the scenario displayed.}
+#'
+#' \item{delta}{This is a vector of the size of the effect on the outcome variable.}
+#'
+#' \item{sigma}{This is a vector of the standard deviation of the outcome variable.}
+#'
+#' \item{rho}{This is a vector of the intra-cluster correlation.}
+#'
+#' \item{k0.ic}{This is a vector of the number of control clusters used as initial condition of the GenSA optimization function.}
+#'
+#' \item{k1.ic}{This is a vector of the number of treatment clusters used as initial condition of the GenSA optimization function.}
+#'
+#' \item{m0.ic}{This is a vector of the number of sample units per control cluster used as initial condition of the GenSA optimization function.}
+#'
+#' \item{m1.ic}{This is a vector of the number of sample units per treatment cluster used as initial condition of the GenSA optimization function.}
+#'
+#' \item{C}{This is a vector of the maximum level of total costs of implementing the RCT. It includes data collection costs (baseline and endline) and the costs of implementing the intervention under study.}
+#'
+#' \item{v0}{This is a vector of the variable cost per control unit.}
+#'
+#' \item{v1}{This is a vector of the variable costs per treatment unit.}
+#'
+#' \item{f0}{This is a vector of the fixed costs per control cluster.}
+#'
+#' \item{f1}{This is a vector of the fixed costs per treatment cluster.}
+#'
+#' \item{k0}{This is a vector of the optimum number of control clusters that maximize power.}
+#'
+#' \item{k1}{This is a vector of the optimum number of treatment clusters that maximize power.}
+#'
+#' \item{m0}{This is a vector of the optimum number of sample units per control cluster that maximize power.}
+#'
+#' \item{m1}{This is a vector of the optimum number of sample units per treatment cluster that maximize power.}
+#'
+#' \item{power}{This is the vector of the power of the RCT with the optimum number of clusters and units provided by this function.}
+#'
+#' \item{K}{This is the vector of the optimum total number of clusters.}
+#'}
+#'
+#'
+#' @export
+
+maxpower.nA <-  function(delta,
+                         sigma,
+                         rho,
+                         alpha,
+                         C,
+                         q,
+                         v0,
+                         v1,
+                         f0,
+                         f1,
+                         optimal,
+                         initial.cond,
+                         lb,
+                         ub,
+                         temp){
+
+  ### additional initial values -  normal distribution
+
+  t.a= qnorm(1-(alpha/2))
+
+  ### Number of scenarios
+
+  scenario <- c(1:max(length(delta), length(sigma), length(rho), length(alpha),
+                      length(v0), length(v1), length(f0), length(f1), length(C)))
+
+  ### Generate variable with the number of iteration
+  ### iter=0 is iteration using the normal distribution
+
+  iter.pm <- c(0)
+
+  ### Output file
+
+  K <- c(NA)
+  pm.output <- as.data.frame(cbind(iter.pm, scenario, delta, sigma, rho, alpha, C, v0, v1, f0, f1, K, t.a))
+  pm.output <- as.data.frame(merge(initial.cond,pm.output, by="scenario"))
+
+  ### Parameters boundaries
+
+  lower <- lb
+  upper <- ub
+
+  ### Temperature
+
+  if(is.null(temp))  {
+    temp <- 5230      ### Default value in GenSA function.
+  }else{
+    temp <= temp
+  }
+
+  ### Definition of parameters according to the initial conditions
+
+  if (optimal == 0) {
+
+    m0 <- initial.cond[,'m0.ic']
+    m1 <- initial.cond[,'m1.ic']
+    k1 <- initial.cond[,'k1.ic']
+
+    params <- cbind(m0, m1, k1)
+
+  }  else if (optimal == 1){
+
+    m0 <- initial.cond[,'m0.ic']
+    k1 <- initial.cond[,'k1.ic']
+
+    params <- cbind(m0, k1)
+
+  } else if (optimal == 2) {
+
+    m0 <- initial.cond[,'m0.ic']
+    m1 <- initial.cond[,'m1.ic']
+
+    params <- cbind(m0, m1)
+
+  }
+
+  ### Maximization of power
+
+  optim.power<- vector("list", nrow(pm.output))
+
+  for (i in 1:nrow(pm.output)) {
+
+    optim.power[[i]] <- GenSA(par = params[i,], fn=power.func.nA, lower=lower, upper=upper, v0=pm.output[i,'v0'], v1=pm.output[i,'v1'],
+                              f0=pm.output[i,'f0'], f1=pm.output[i,'f1'], t.a = pm.output[i,'t.a'], C = pm.output[i,'C'],
+                              delta= pm.output[i,'delta'], sigma = pm.output[i,'sigma'], rho = pm.output[i,'rho'],
+                              optimal = optimal, control = list(temperature = temp))
+  }
+
+  ### Best set of parameters found
+
+  V <- sapply(optim.power, `[[`, "par")
+  pm.output$power <- -sapply(optim.power, `[[`, "value")
+
+  pm.output$m0 <- V[1,]
+
+  if (optimal == 0) {
+
+    pm.output$m1 <- V[2,]
+    pm.output$k1 <- V[3,]
+
+  } else if (optimal == 1){
+
+    pm.output$m1 <- V[1,]
+    pm.output$k1 <- V[2,]
+
+  } else if (optimal == 2){
+
+    pm.output$m1 <- V[2,]
+    pm.output$k1 <- c(NA)
+
+  }
+
+  ### Value of K0 using the best parameters found in the optimization process
+
+  if (optimal != 2) {
+
+    pm.output$k0 <- ((C - (pm.output$k1 * (f1 + (v1*pm.output$m1)))) / (f0 + (v0*pm.output$m0)))
+
+  } else if (optimal == 2) {
+
+    pm.output$k0 <- (C / ((f0 + f1) + (v0*pm.output$m0) + (v1*pm.output$m1)))
+    pm.output$k1 <- pm.output$k0
+  }
+
+  ### Value of Cost using the best parameters found in the optimization process
+
+  pm.output$Cost <- pm.output$k0*(f0+ (v0*pm.output$m0)) + pm.output$k1*(f1+ (v1*pm.output$m1))
+
+  ### Sort variables
+
+  pm.output.t <- pm.output[, c("iter.pm", "scenario", "delta", "sigma", "rho", "alpha", "k0.ic", "k1.ic", "m0.ic", "m1.ic", "C", "Cost", "v0", "v1", "f0", "f1", 'k0', "k1", 'm0', "m1", 'power', "K")]
+
+  ### Value of Kt (K = k0 + k1)
+
+  pm.output.t$Kt <- (pm.output.t$k0 + pm.output.t$k1)
+
+  ### Test K and Kt for exact equality
+
+  abs.dif.K <- abs(pm.output.t$'K' - pm.output.t$"Kt")
+  pm.output.t$same = ifelse((abs.dif.K< 0.01), "TRUE", "FALSE")
+
+  ### Combine Outputs.t data frames
+
+  max.power <- as.data.frame(rbind(pm.output.t))
+
+  ### Delete data from iteration with the normal distribution
+
+  rm ("pm.output", "optim.power", "V" )
+
+
+  ### Power maximization - t-Distribution iterations ----------------------------------
+
+  repeat {
+
+    ### Generate K values using the values from previous iteration
+
+    K = pm.output.t$Kt
+
+    ### Delete data from previous iteration
+
+    rm ("pm.output.t")
+
+    ### Generate variable with the number of iteration
+
+    iter.pm <-iter.pm+1
+
+    ### Define the new data frame to store the outputs
+
+    pm.output.t<- as.data.frame(cbind(iter.pm, scenario, delta, sigma, rho, alpha, C, v0, v1, f0, f1, K))
+    pm.output.t <- as.data.frame(merge(initial.cond, pm.output.t, by="scenario"))
+
+    ### one tail value "t.a" using t-Distribution
+
+    pm.output.t$df <- pm.output.t$K-q
+    pm.output.t$t.a <- qt((1-(alpha/2)),  pm.output.t$df, lower.tail = TRUE)
+
+    ### Maximization of power
+
+    optim.power.t<- vector("list", nrow(pm.output.t))
+
+    for (i in 1:nrow(pm.output.t)) {
+
+      optim.power.t[[i]] <- GenSA(par = params[i,], fn=power.func.t.nA, lower=lower, upper=upper, v0=pm.output.t[i,'v0'], v1=pm.output.t[i,'v1'],
+                                  f0=pm.output.t[i,'f0'], f1=pm.output.t[i,'f1'], t.a=pm.output.t[i,'t.a'], df= pm.output.t[i,'df'],
+                                  C=pm.output.t[i,'C'], delta= pm.output.t[i,'delta'], sigma = pm.output.t[i,'sigma'], rho = pm.output.t[i,'rho'],
+                                  optimal = optimal, control = list(temperature = temp))
+    }
+
+    ### Best set of parameters found
+
+    V.t <- sapply(optim.power.t, `[[`, "par")
+    pm.output.t$power <- -sapply(optim.power.t, `[[`, "value")
+
+    pm.output.t$m0 <- V.t[1,]
+
+    if (optimal == 0) {
+
+      pm.output.t$m1 <- V.t[2,]
+      pm.output.t$k1 <- V.t[3,]
+
+    } else if (optimal == 1){
+
+      pm.output.t$m1 <- V.t[1,]
+      pm.output.t$k1 <- V.t[2,]
+
+    } else if (optimal == 2){
+
+      pm.output.t$m1 <- V.t[2,]
+      pm.output.t$k1 <- c(NA)
+
+    }
+
+    ### Value of K0 using the best parameters found in the optimization process
+
+    if (optimal != 2){
+
+      pm.output.t$k0 <- ((C - (pm.output.t$k1 * (f1 + (v1* pm.output.t$m1)))) /(f0 + (v0* pm.output.t$m0 )))
+
+
+    } else if (optimal == 2) {
+
+      pm.output.t$k0 <- (C / ((f0+f1) + (v0*pm.output.t$m0) + (v1*pm.output.t$m1)))
+      pm.output.t$k1 <- pm.output.t$k0
+
+    }
+
+    ### Value of Cost using the best parameters found in the optimization process
+
+    pm.output.t$Cost <- pm.output.t$k0*(f0+ (v0*pm.output.t$m0)) + pm.output.t$k1*(f1+ (v1*pm.output.t$m1))
+
+    ### Sort variables
+
+    pm.output.t <- pm.output.t[, c("iter.pm", "scenario", "delta", "sigma", "rho", "alpha", "m0.ic", "m1.ic", "k0.ic", "k1.ic", "C", "Cost", "v0", "v1", "f0", "f1", 'k0', "k1", 'm0', "m1", 'power', "K")]
+
+    ### Value of Kt (K = k0 + k1)
+
+    pm.output.t$Kt <- (pm.output.t$k0 + pm.output.t$k1)
+
+    ### Test K and Kt for exact equality
+
+    abs.dif.K <- abs(pm.output.t$'K' - pm.output.t$"Kt")
+    pm.output.t$same = ifelse((abs.dif.K< 0.01), "TRUE", "FALSE")
+
+    ### Combine Outputs.t data frames
+
+    max.power <- as.data.frame(rbind(pm.output.t, max.power))
+
+    ### Condition to break the iterations
+
+    brk = sum (ifelse (pm.output.t$"same"== "TRUE",1,0))
+
+    if (brk==length(scenario)) {
+      break
+    }
+
+    ### Delete data from iteration with the normal distribution
+
+    rm ("optim.power.t", "V.t")
+
+  }
+
+  max.power$K=max.power$Kt
+
+  ### Keep the best parameters found in the optimization process
+
+  results <- (max.power[1:nrow(pm.output.t), c("scenario", "delta", "sigma", "rho","C", "v0", "v1", "f0", "f1", 'k0', "k1", 'm0', "m1", 'power')])
+
+  ### Delete data frames of initial conditions
+
+  rm ("pm.output.t", "V.t", "optim.power.t")
+
+  ### Transposing objects
+
+  options( scipen = 24 )
+  optimum.power <- ((t(results)))
+  return (optimum.power)
+
+}
+
