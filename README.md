@@ -11,6 +11,6 @@ You can install the development version of Optimal.sample from GitHub with:
 
 
 ```{r}
-## install.packages("devtools")
+install.packages("devtools")
 devtools::install_github("brendonmcconnell/Optimal.sample")
 ```
