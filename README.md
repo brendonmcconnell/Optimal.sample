@@ -6,7 +6,9 @@ This package provides the optimal sample design (number of treatment and control
 This package is provided free of charge and without any guarantee. If you use this package, please, cite this package as well as McConnell and Vera-Hernandez (2022) "More powerful Cluster Randomized Control Trials". The software assumes that the cost function is C = `k0*(f0 + (v0*m0)) + k1*(f1 + (v1*m1))` where `k1` is the number of treatment clusters, `k0` is the number of control clusters, `m1` is the number of units sampled within treatment clusters, `m0` is the number of units sampled within control clusters, `f1` is the fixed cost of sampling a treatment cluster, `f0` is the fixed cost of sampling a control cluster, `v1` is the marginal cost of a treatment unit, and `v0` is the marginal cost of a control unit. This package contains two functions: `MinCosts.opt.R` minimizes the costs subject to a given level of power, and `MaxPower.opt.R` which maximizes power subject to a given level of cost.
 
 
-The [online vignettes](https://github.com/Nancydaza/Nancydaza.github.io/blob/main/Optimal.sample.html) contains a gallery of examples.
+The [online vignettes](https://github.com/Nancydaza/Nancydaza.github.io.git
+
+https://github.com/Nancydaza/Nancydaza.github.io/blob/main/Optimal.sample.html) contains a gallery of examples.
 
 # Installation 
 
