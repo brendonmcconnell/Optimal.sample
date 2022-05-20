@@ -1,7 +1,0 @@
-pandoc: 2.17.1.1
-pkgdown: 2.0.3
-pkgdown_sha: ~
-articles:
-  Optimal.sample: Optimal.sample.html
-last_built: 2022-05-20T14:34Z
-
